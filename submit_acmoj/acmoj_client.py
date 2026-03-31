@@ -34,48 +34,86 @@ def submit(repo_url, branch='main'):
     token = get_token()
     problem_id = get_problem_id()
 
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-
-    data = {
-        'problem_id': problem_id,
-        'repo_url': repo_url,
-        'branch': branch,
-        'language': 'verilog'
-    }
-
     print(f"Submitting to ACMOJ...")
     print(f"Problem ID: {problem_id}")
     print(f"Repository: {repo_url}")
     print(f"Branch: {branch}")
 
-    try:
-        response = requests.post(
-            f"{ACMOJ_API_BASE}/submit",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
+    # Try multiple API formats
+    api_endpoints = [
+        ("https://acm.sjtu.edu.cn/api/judge/submit", {
+            'X-Auth-Token': token,
+            'Content-Type': 'application/json'
+        }, {
+            'problem_id': int(problem_id),
+            'type': 'git',
+            'git_url': repo_url,
+            'git_branch': branch
+        }),
+        (f"https://acm.sjtu.edu.cn/api/problems/{problem_id}/submit", {
+            'X-Auth-Token': token,
+            'Content-Type': 'application/json'
+        }, {
+            'repo_url': repo_url,
+            'branch': branch,
+            'language': 'verilog'
+        }),
+        (f"{ACMOJ_API_BASE}/submit", {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }, {
+            'problem_id': problem_id,
+            'repo_url': repo_url,
+            'branch': branch,
+            'language': 'verilog'
+        }),
+    ]
 
-        if response.status_code == 200:
-            result = response.json()
-            submission_id = result.get('submission_id')
-            print(f"\n✓ Submission successful!")
-            print(f"Submission ID: {submission_id}")
-            print(f"\nUse this command to check status:")
-            print(f"  python3 submit_acmoj/acmoj_client.py status {submission_id}")
-            return submission_id
-        else:
-            print(f"\n✗ Submission failed!")
+    for endpoint, headers, data in api_endpoints:
+        try:
+            print(f"\nTrying endpoint: {endpoint}")
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=data,
+                timeout=30,
+                allow_redirects=False
+            )
+
             print(f"Status code: {response.status_code}")
-            print(f"Response: {response.text}")
-            return None
 
-    except requests.exceptions.RequestException as e:
-        print(f"\n✗ Request error: {e}")
-        return None
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    submission_id = result.get('submission_id') or result.get('id')
+                    print(f"\n✓ Submission successful!")
+                    print(f"Submission ID: {submission_id}")
+                    print(f"\nUse this command to check status:")
+                    print(f"  python3 submit_acmoj/acmoj_client.py status {submission_id}")
+                    return submission_id
+                except:
+                    print(f"Response: {response.text[:200]}")
+            elif response.status_code == 201:
+                try:
+                    result = response.json()
+                    submission_id = result.get('submission_id') or result.get('id')
+                    print(f"\n✓ Submission successful!")
+                    print(f"Submission ID: {submission_id}")
+                    return submission_id
+                except:
+                    print(f"Response: {response.text[:200]}")
+                    return "created"
+            else:
+                print(f"Response preview: {response.text[:200]}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request error: {e}")
+            continue
+
+    print(f"\n✗ All submission attempts failed!")
+    print(f"\nThe repository has been pushed to: {repo_url}")
+    print(f"The OJ system may pick it up automatically.")
+    return None
 
 def check_status(submission_id):
     """Check status of a submission"""
